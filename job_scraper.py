@@ -27,8 +27,8 @@ from jobspy import scrape_jobs
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-SHEET_ID   = "1M5SaGYmAFZAbtxCYwDRz68jXddnBlcvuZNbhnSKFIg8"
-SHEET_TAB  = "Job List"          # must match your tab name exactly
+SHEET_ID   = "1M5SaGYmAFZAbtxCYwDRz68jXddnBlcvuZNbhnSKFlg8"
+SHEET_TAB  = "Sheet1"            # must match your tab name exactly
 
 KEYWORDS   = [
     "MBA Strategy Internship",   # MVP: single keyword — add more here later
