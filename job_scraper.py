@@ -27,7 +27,7 @@ from jobspy import scrape_jobs
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-SHEET_ID   = "1M5SaGYmAFZAbtxCYwDRz68jXddnBlcvuZNbhnSKFIg8"
+SHEET_ID   = "1M5SaGYmAFZAbtxCYwDRz68jXddnBlcvuZNbhnSKFlg8"
 SHEET_TAB  = "Sheet1"            # must match your tab name exactly
 
 KEYWORDS   = [
@@ -40,6 +40,33 @@ SCRAPE_SLEEP_SEC    = 4          # pause between keyword scrapes (rate-limit saf
 LLM_SLEEP_SEC       = 0.3        # pause between LLM calls
 
 VALID_FUNCTIONS = ["Strategy", "Ops", "PGM"]
+
+# ── Title pre-filter ───────────────────────────────────────────────────────────
+# A job title must contain at least one INTERN signal to pass.
+# This catches full-time/senior roles before we spend any LLM calls on them.
+
+TITLE_INTERN_SIGNALS = [
+    "intern", "internship", "co-op", "coop",
+    "mba", "fellowship", "summer associate",
+    "rotational", "associate program",
+]
+
+# Titles containing these words are rejected even if an intern signal is present
+# (e.g. "Senior MBA Program Manager" should not pass).
+TITLE_HARD_EXCLUDES = [
+    "senior ", "sr.", "sr ", " sr ",
+    "director", "vp ", "vice president",
+    "principal", "head of", "staff ",
+    "chief ", "president", "c-suite",
+]
+
+
+def passes_title_prefilter(title: str) -> bool:
+    """Return True only if title looks like an internship/MBA-level role."""
+    t = title.lower()
+    has_intern_signal = any(kw in t for kw in TITLE_INTERN_SIGNALS)
+    has_senior_signal = any(kw in t for kw in TITLE_HARD_EXCLUDES)
+    return has_intern_signal and not has_senior_signal
 
 # ── Google Sheets helpers ─────────────────────────────────────────────────────
 
@@ -103,7 +130,15 @@ def scrape_all_keywords() -> pd.DataFrame:
         return pd.DataFrame()
 
     combined = pd.concat(frames, ignore_index=True)
-    return combined.drop_duplicates(subset=["job_url"])
+    # Primary dedup: same job URL
+    combined = combined.drop_duplicates(subset=["job_url"])
+    # Secondary dedup: same title+company (catches re-posts with different URLs)
+    combined["_dedup_key"] = (
+        combined["title"].str.lower().str.strip() + "|" +
+        combined["company"].str.lower().str.strip()
+    )
+    combined = combined.drop_duplicates(subset=["_dedup_key"]).drop(columns=["_dedup_key"])
+    return combined
 
 # ── LLM Classification ────────────────────────────────────────────────────────
 
@@ -133,9 +168,16 @@ Strict rules:
                "No" if posting explicitly states no sponsorship is available.
                "Not Specified" if not mentioned.
 - deadline: application deadline formatted as "M/D/YYYY", or null if not stated.
-- is_mba_targeted: true only if the role clearly targets MBA students, MBA interns,
-    or recent MBA/master's graduates.
-    false if it targets undergrad students or general applicants.
+- is_mba_targeted: true ONLY if ALL of the following hold:
+    (a) The role is a temporary/internship position (summer intern, co-op, fellowship,
+        rotational program, or similar) — NOT a permanent full-time hire.
+    (b) The role explicitly targets MBA students, MBA candidates, or master's-level
+        graduates (look for "MBA", "master's", "graduate program", "business school").
+    Set is_mba_targeted=false for:
+    - Any permanent full-time role (Manager, Consultant, Analyst, Engineer, etc.)
+    - Internships aimed at undergrads only (no MBA/graduate mention)
+    - Roles where "MBA" appears only incidentally (e.g. company name, unrelated context)
+    When in doubt, default to false.
 """
 
 
@@ -214,6 +256,12 @@ def main() -> None:
         desc    = safe(job.get("description"))
         url     = safe(job.get("job_url"))
 
+        # ── Layer 1: fast title pre-filter (no API cost) ──
+        if not passes_title_prefilter(title):
+            print(f"    → Skipped by title filter: '{title}'")
+            skipped += 1
+            continue
+
         print(f"  Classifying: {title} @ {company}")
 
         try:
@@ -223,8 +271,9 @@ def main() -> None:
             skipped += 1
             continue
 
+        # ── Layer 2: LLM judgment ──
         if not result.get("is_mba_targeted", True):
-            print(f"    → Skipped (not MBA-targeted)")
+            print(f"    → Skipped by LLM (not MBA-targeted)")
             skipped += 1
             continue
 
