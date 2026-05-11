@@ -1,0 +1,38 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Place this file at: .github/workflows/daily_scrape.yml
+# in your GitHub repository root.
+# ─────────────────────────────────────────────────────────────────────────────
+
+name: Daily MBA Job Scraper
+
+on:
+  schedule:
+    # 5 am PDT (UTC-7, Mar–Nov) = 12:00 UTC
+    # 4 am PST (UTC-8, Nov–Mar) = 12:00 UTC  ← drifts 1 hour in winter, acceptable
+    - cron: '0 12 * * *'
+
+  # Lets you trigger a manual run from the GitHub Actions tab (great for testing)
+  workflow_dispatch:
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30       # kill the job if something hangs
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run scraper
+        env:
+          ANTHROPIC_API_KEY:       ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: python job_scraper.py
