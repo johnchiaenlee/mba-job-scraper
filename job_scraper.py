@@ -27,7 +27,7 @@ from jobspy import scrape_jobs
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
-SHEET_ID   = "19atxiLdiYTnGRGLwTFKRsqotBtGjxaVS"
+SHEET_ID   = "1M5SaGYmAFZAbtxCYwDRz68jXddnBlcvuZNbhnSKFIg8"
 SHEET_TAB  = "Job List"          # must match your tab name exactly
 
 KEYWORDS   = [
