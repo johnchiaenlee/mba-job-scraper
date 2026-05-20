@@ -223,6 +223,37 @@ def build_location(job: pd.Series) -> str:
     return loc if loc else "United States"
 
 
+def format_posted_date(job: pd.Series) -> str:
+    """Return a human-readable relative string (e.g. '3 days ago') from date_posted."""
+    raw = job.get("date_posted")
+    if raw is None:
+        return ""
+    try:
+        if hasattr(raw, "date"):          # datetime → date
+            posted = raw.date()
+        elif isinstance(raw, str):
+            posted = datetime.strptime(raw[:10], "%Y-%m-%d").date()
+        else:
+            posted = raw
+        delta = (datetime.utcnow().date() - posted).days
+        if delta == 0:
+            return "Today"
+        elif delta == 1:
+            return "1 day ago"
+        elif delta < 7:
+            return f"{delta} days ago"
+        elif delta < 14:
+            return "1 week ago"
+        elif delta < 30:
+            return f"{delta // 7} weeks ago"
+        elif delta < 60:
+            return "1 month ago"
+        else:
+            return f"{delta // 30} months ago"
+    except Exception:
+        return str(raw)
+
+
 def hyperlink(url: str, title: str) -> str:
     """Return a =HYPERLINK() formula safe for Google Sheets USER_ENTERED input."""
     safe_title = title.replace('"', "'").replace("\n", " ")
@@ -291,7 +322,7 @@ def main() -> None:
         location    = build_location(job)
 
         # Column order: A=Company, B=Role/Link, C=Function, D=Location,
-        #               E=Status, F=Sponsorship, G=Deadline
+        #               E=Status, F=Sponsorship, G=Deadline, H=Posted
         rows.append([
             company,
             hyperlink(url, title),
@@ -300,6 +331,7 @@ def main() -> None:
             "Open",
             sponsorship,
             deadline,
+            format_posted_date(job),
         ])
 
         time.sleep(LLM_SLEEP_SEC)
