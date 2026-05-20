@@ -167,7 +167,10 @@ Strict rules:
 - sponsorship: "Yes" if posting explicitly offers visa sponsorship.
                "No" if posting explicitly states no sponsorship is available.
                "Not Specified" if not mentioned.
-- deadline: application deadline formatted as "M/D/YYYY", or null if not stated.
+- deadline: Search the description carefully for any application deadline. Look for
+    phrases like "apply by", "applications close", "application deadline", "position closes",
+    "submit by", "priority deadline", "rolling admissions", or specific dates near
+    "deadline" / "close" / "due". Format as "M/D/YYYY". Return null ONLY if truly absent.
 - is_mba_targeted: true ONLY if ALL of the following hold:
     (a) The role is a temporary/internship position (summer intern, co-op, fellowship,
         rotational program, or similar) — NOT a permanent full-time hire.
@@ -191,7 +194,7 @@ def classify_job(client: anthropic.Anthropic, title: str, company: str, descript
             "content": CLASSIFY_PROMPT.format(
                 title=title,
                 company=company,
-                description=(description or "")[:3000],  # cap tokens
+                description=(description or "")[:6000],  # cap tokens
             ),
         }],
     )
@@ -209,10 +212,15 @@ def safe(val) -> str:
 
 
 def build_location(job: pd.Series) -> str:
+    # Prefer structured city + state fields
     city  = safe(job.get("city", ""))
     state = safe(job.get("state", ""))
-    parts = [p for p in [city, state] if p]
-    return ", ".join(parts) if parts else "United States"
+    if city or state:
+        parts = [p for p in [city, state] if p]
+        return ", ".join(parts)
+    # Fall back to JobSpy's full location string (e.g. "New York, NY")
+    loc = safe(job.get("location", ""))
+    return loc if loc else "United States"
 
 
 def hyperlink(url: str, title: str) -> str:
