@@ -54,8 +54,8 @@ KEYWORDS   = [
     "MBA Summer Intern",                # small & mid-size companies
 ]
 
-RESULTS_PER_KEYWORD = 30         # 17 keywords × 30 = ~510 raw before dedup
-HOURS_OLD           = 25         # slightly > 24 h to cover timezone edge cases
+RESULTS_PER_KEYWORD = 50         # one-time backfill — revert to 30 after run
+HOURS_OLD           = 2160       # 90 days — one-time backfill, revert after run
 SCRAPE_SLEEP_SEC    = 6          # longer pause with more keywords to avoid rate-limit
 LLM_SLEEP_SEC       = 0.3        # pause between LLM calls
 
