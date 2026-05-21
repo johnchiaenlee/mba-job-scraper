@@ -195,11 +195,18 @@ Strict rules:
     (a) The role is a temporary/internship position (summer intern, co-op, fellowship,
         rotational program, or similar) — NOT a permanent full-time hire.
     (b) The role explicitly targets MBA students, MBA candidates, or master's-level
-        graduates (look for "MBA", "master's", "graduate program", "business school").
+        business graduates — look for "MBA", "master's", "graduate program",
+        "business school". Generic "graduate student" alone is NOT enough; the role
+        must be aimed at business/management graduates, not academic researchers.
     Set is_mba_targeted=false for:
     - Any permanent full-time role (Manager, Consultant, Analyst, Engineer, etc.)
     - Internships aimed at undergrads only (no MBA/graduate mention)
     - Roles where "MBA" appears only incidentally (e.g. company name, unrelated context)
+    - Roles targeting PhD students, doctoral candidates, or academic researchers
+      (e.g. "research assistant", "research fellow", "policy research intern" at
+      think-tanks, universities, or non-profits — these are PhD/academic tracks)
+    - Roles where the primary work is academic research, literature review, or
+      policy analysis with no business/management component
     When in doubt, default to false.
 """
 
