@@ -54,8 +54,8 @@ KEYWORDS   = [
     "MBA Summer Intern",                # small & mid-size companies
 ]
 
-RESULTS_PER_KEYWORD = 50         # one-time backfill — revert to 30 after run
-HOURS_OLD           = 2160       # 90 days — one-time backfill, revert after run
+RESULTS_PER_KEYWORD = 30         # 17 keywords × 30 = ~510 raw before dedup
+HOURS_OLD           = 25         # slightly > 24 h to cover timezone edge cases
 SCRAPE_SLEEP_SEC    = 6          # longer pause with more keywords to avoid rate-limit
 LLM_SLEEP_SEC       = 0.3        # pause between LLM calls
 
@@ -244,32 +244,18 @@ def build_location(job: pd.Series) -> str:
 
 
 def format_posted_date(job: pd.Series) -> str:
-    """Return a human-readable relative string (e.g. '3 days ago') from date_posted."""
+    """Return the actual post date as M/D/YYYY so Google Sheets can auto-compute age."""
     raw = job.get("date_posted")
     if raw is None:
         return ""
     try:
-        if hasattr(raw, "date"):          # datetime → date
+        if hasattr(raw, "date"):
             posted = raw.date()
         elif isinstance(raw, str):
             posted = datetime.strptime(raw[:10], "%Y-%m-%d").date()
         else:
             posted = raw
-        delta = (datetime.utcnow().date() - posted).days
-        if delta == 0:
-            return "Today"
-        elif delta == 1:
-            return "1 day ago"
-        elif delta < 7:
-            return f"{delta} days ago"
-        elif delta < 14:
-            return "1 week ago"
-        elif delta < 30:
-            return f"{delta // 7} weeks ago"
-        elif delta < 60:
-            return "1 month ago"
-        else:
-            return f"{delta // 30} months ago"
+        return posted.strftime("%-m/%-d/%Y")   # e.g. "5/13/2026"
     except Exception:
         return str(raw)
 
