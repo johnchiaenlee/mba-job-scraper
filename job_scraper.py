@@ -194,19 +194,20 @@ Strict rules:
 - is_mba_targeted: true ONLY if ALL of the following hold:
     (a) The role is a temporary/internship position (summer intern, co-op, fellowship,
         rotational program, or similar) — NOT a permanent full-time hire.
-    (b) The role explicitly targets MBA students, MBA candidates, or master's-level
-        business graduates — look for "MBA", "master's", "graduate program",
-        "business school". Generic "graduate student" alone is NOT enough; the role
-        must be aimed at business/management graduates, not academic researchers.
+    (b) The role targets MBA students OR uses generic "graduate" language without
+        specifying a non-MBA degree. Acceptable signals: "MBA", "MBA student",
+        "MBA candidate", "graduate intern", "graduate program" (unspecified degree).
     Set is_mba_targeted=false for:
     - Any permanent full-time role (Manager, Consultant, Analyst, Engineer, etc.)
-    - Internships aimed at undergrads only (no MBA/graduate mention)
-    - Roles where "MBA" appears only incidentally (e.g. company name, unrelated context)
-    - Roles targeting PhD students, doctoral candidates, or academic researchers
-      (e.g. "research assistant", "research fellow", "policy research intern" at
-      think-tanks, universities, or non-profits — these are PhD/academic tracks)
-    - Roles where the primary work is academic research, literature review, or
-      policy analysis with no business/management component
+    - Internships aimed at undergrads only
+    - Roles targeting PhD / doctoral candidates or academic researchers
+    - Roles targeting MS students in specific non-business fields
+      (e.g. MS in Engineering, MS in Computer Science, MS in Public Policy,
+      MS in Data Science — these are NOT MBA roles)
+    - Roles where the primary work is academic research, literature review,
+      or policy analysis with no business/management component
+      (e.g. research assistant/fellow at think-tanks, universities, non-profits)
+    - Roles where "MBA" appears only incidentally (e.g. in company name)
     When in doubt, default to false.
 """
 
