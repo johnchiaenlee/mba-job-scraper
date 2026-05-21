@@ -74,6 +74,7 @@ def build_location(job: pd.Series) -> str:
 
 
 def format_posted_date(job: pd.Series) -> str:
+    """Return actual post date as M/D/YYYY — Google Sheets formula computes age."""
     raw = job.get("date_posted")
     if raw is None:
         return ""
@@ -84,23 +85,10 @@ def format_posted_date(job: pd.Series) -> str:
             posted = datetime.strptime(raw[:10], "%Y-%m-%d").date()
         else:
             posted = raw
-        delta = (datetime.utcnow().date() - posted).days
-        if delta == 0:
-            return "Today"
-        elif delta == 1:
-            return "1 day ago"
-        elif delta < 7:
-            return f"{delta} days ago"
-        elif delta < 14:
-            return "1 week ago"
-        elif delta < 30:
-            return f"{delta // 7} weeks ago"
-        elif delta < 60:
-            return "1 month ago"
-        else:
-            return f"{delta // 30} months ago"
+        return posted.strftime("%-m/%-d/%Y")
     except Exception:
         return str(raw)
+
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
