@@ -160,7 +160,7 @@ def main():
 
     # 4. Write updates in one batch call
     if updates:
-        ws.batch_update(updates)
+        ws.batch_update(updates, value_input_option="USER_ENTERED")
         print(f"\n✓ Updated {matched} rows (location + posted date).")
     else:
         print("\nNo URL matches found — no rows updated.")
