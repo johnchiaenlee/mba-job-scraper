@@ -31,12 +31,32 @@ SHEET_ID   = "1M5SaGYmAFZAbtxCYwDRz68jXddnBlcvuZNbhnSKFIg8"
 SHEET_TAB  = "Sheet1"            # must match your tab name exactly
 
 KEYWORDS   = [
-    "MBA Strategy Internship",   # MVP: single keyword — add more here later
+    # ── Strategy ──────────────────────────────────────────────────────────────
+    "MBA Strategy Intern",              # broad — catches F500 & startups alike
+    "MBA Corporate Strategy Intern",    # large-co titles (Google, Amazon, etc.)
+    "MBA Strategic Planning Intern",    # mid-size ops-heavy companies
+    # ── Operations ────────────────────────────────────────────────────────────
+    "MBA Operations Intern",
+    "MBA Business Operations Intern",   # tech/growth-stage companies
+    "MBA Operations Summer Associate",  # consulting & finance orgs
+    # ── Supply Chain ──────────────────────────────────────────────────────────
+    "MBA Supply Chain Intern",
+    "MBA Supply Chain Summer Intern",
+    "MBA Logistics Intern",             # 3PL, retail, manufacturing
+    # ── Program / Project Management ──────────────────────────────────────────
+    "MBA Program Manager Intern",
+    "MBA Program Management Intern",
+    "MBA Project Management Intern",    # tech companies (FAANG, etc.)
+    # ── General / Cross-functional ────────────────────────────────────────────
+    "MBA Summer Associate",             # finance & consulting catch-all
+    "MBA Rotational Program",           # LDP / rotational at large cos
+    "MBA Business Development Intern",  # growth / BD roles
+    "MBA Summer Intern",                # small & mid-size companies
 ]
 
-RESULTS_PER_KEYWORD = 50         # per keyword; LinkedIn caps ~200/search/IP
+RESULTS_PER_KEYWORD = 30         # 17 keywords × 30 = ~510 raw before dedup
 HOURS_OLD           = 25         # slightly > 24 h to cover timezone edge cases
-SCRAPE_SLEEP_SEC    = 4          # pause between keyword scrapes (rate-limit safety)
+SCRAPE_SLEEP_SEC    = 6          # longer pause with more keywords to avoid rate-limit
 LLM_SLEEP_SEC       = 0.3        # pause between LLM calls
 
 VALID_FUNCTIONS = ["Strategy", "Ops", "PGM"]

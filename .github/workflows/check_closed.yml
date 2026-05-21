@@ -1,0 +1,24 @@
+name: Weekly Closed Job Check
+
+on:
+  schedule:
+    - cron: "0 14 * * 1"   # Every Monday at 6am PDT (14:00 UTC)
+  workflow_dispatch:         # Allow manual trigger too
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Check for closed jobs
+        env:
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: python check_closed.py
