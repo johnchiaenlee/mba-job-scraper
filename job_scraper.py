@@ -34,8 +34,8 @@ KEYWORDS   = [
     "MBA Strategy Internship",   # MVP: single keyword — add more here later
 ]
 
-RESULTS_PER_KEYWORD = 500        # per keyword; LinkedIn caps ~200/search/IP
-HOURS_OLD           = 2160       # 90 days — one-time backfill, revert after run
+RESULTS_PER_KEYWORD = 50         # per keyword; LinkedIn caps ~200/search/IP
+HOURS_OLD           = 25         # slightly > 24 h to cover timezone edge cases
 SCRAPE_SLEEP_SEC    = 4          # pause between keyword scrapes (rate-limit safety)
 LLM_SLEEP_SEC       = 0.3        # pause between LLM calls
 
