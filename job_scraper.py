@@ -207,6 +207,10 @@ Strict rules:
     - Roles where the primary work is academic research, literature review,
       or policy analysis with no business/management component
       (e.g. research assistant/fellow at think-tanks, universities, non-profits)
+    - Administrative Fellowships at healthcare systems, hospitals, universities,
+      or government orgs — these target MHA/MPH/public administration graduates,
+      NOT MBAs (e.g. "Administrative Fellowship @ Sentara Health",
+      "Health Plan Operations Fellowship", "Administrative Fellowship @ University of X")
     - Roles where "MBA" appears only incidentally (e.g. in company name)
     When in doubt, default to false.
 """
@@ -254,7 +258,7 @@ def build_location(job: pd.Series) -> str:
 def format_posted_date(job: pd.Series) -> str:
     """Return the actual post date as M/D/YYYY so Google Sheets can auto-compute age."""
     raw = job.get("date_posted")
-    if raw is None:
+    if raw is None or pd.isna(raw):   # catches None, NaN, NaT
         return ""
     try:
         if hasattr(raw, "date"):

@@ -43,6 +43,9 @@ Rules for is_mba_targeted:
       Public Policy, Sciences, etc.)
     - Role is research-focused with no business component (research assistant, research fellow,
       policy research, literature review roles at think-tanks, universities, non-profits)
+    - Administrative Fellowships at healthcare systems, hospitals, universities, or government
+      orgs — these target MHA/MPH/public admin graduates, NOT MBAs
+      (e.g. "Administrative Fellowship", "Health Plan Operations Fellowship")
     - Role is clearly undergrad-only (no graduate mention)
     - Role is permanent full-time (no intern/associate/fellow/rotational signal)
     - "MBA" appears only incidentally (in company name, unrelated context)
