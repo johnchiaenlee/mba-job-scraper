@@ -35,6 +35,7 @@ import json
 import os
 import random
 import re
+import sys
 import time
 from datetime import datetime
 
@@ -329,7 +330,26 @@ async def login(page: Page, email: str, password: str) -> bool:
             continue
 
     if not email_sel:
-        print("[error] Could not find email input — check login_page.png")
+        # Dump all inputs on page for debugging
+        try:
+            all_inputs = await page.evaluate("""() => {
+                return Array.from(document.querySelectorAll('input, textarea')).map(el => ({
+                    tag: el.tagName,
+                    type: el.type,
+                    name: el.name,
+                    id: el.id,
+                    placeholder: el.placeholder,
+                    classes: el.className,
+                    visible: el.offsetParent !== null
+                }));
+            }""")
+            print(f"[debug] All inputs on page: {json.dumps(all_inputs, indent=2)}")
+            page_title = await page.title()
+            page_url = page.url
+            print(f"[debug] Page title: {page_title!r}  URL: {page_url}")
+        except Exception as de:
+            print(f"[debug] Could not enumerate inputs: {de}")
+        print("[error] Could not find email input — check login_page.png artifact")
         return False
 
     # Locate password input
@@ -569,7 +589,7 @@ async def async_main() -> None:
         if not success:
             print("[error] Login failed — aborting")
             await browser.close()
-            return
+            sys.exit(1)   # non-zero so GitHub Actions marks the run as failed
 
         # If login redirected us away from the search page, go back
         if "jobSearch" not in page.url:
@@ -695,7 +715,11 @@ async def async_main() -> None:
 
 
 def main() -> None:
-    asyncio.run(async_main())
+    try:
+        asyncio.run(async_main())
+    except Exception as e:
+        print(f"[fatal] {e}")
+        sys.exit(1)
 
 
 if __name__ == "__main__":
