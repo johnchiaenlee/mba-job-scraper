@@ -527,6 +527,68 @@ async def get_job_description(page: Page, url: str) -> str:
     return ""
 
 
+# ── MBA-Exchange closed-job checker ──────────────────────────────────────────
+
+MBAEX_CLOSED_PHRASES = [
+    "the job is no more available",          # confirmed from screenshot
+    "job is no longer available",
+    "position has been filled",
+    "no longer accepting applications",
+]
+
+
+async def check_mbaexchange_closed(page: Page, ws: gspread.Worksheet) -> list[dict]:
+    """
+    Using the already logged-in Playwright session, visit each existing
+    Open MBA-Exchange row and check if the job has been removed.
+
+    Returns a list of gspread batch_update dicts for rows to mark Closed.
+    """
+    # Read Status (E) and URL (B formula) columns
+    try:
+        b_col = ws.get("B2:B5000", value_render_option="FORMULA")
+        e_col = ws.get("E2:E5000")
+    except Exception as ex:
+        print(f"  [warn] Could not read sheet for closed check: {ex}")
+        return []
+
+    updates = []
+    checked = 0
+
+    for i, (b_row, e_row) in enumerate(zip(b_col, e_col)):
+        sheet_row = i + 2
+        status = (e_row[0].strip() if e_row else "")
+        if status != "Open":
+            continue
+
+        b_val = str(b_row[0]) if b_row else ""
+        m = re.search(r'HYPERLINK\("([^"]+)"', b_val)
+        if not m:
+            continue
+
+        url = m.group(1)
+        if "mba-exchange.com" not in url:
+            continue  # LinkedIn URLs handled by check_closed.py
+
+        print(f"  Checking row {sheet_row}: {url[:70]}...")
+        checked += 1
+
+        try:
+            await page.goto(url, wait_until="domcontentloaded", timeout=15000)
+            await human_sleep(1.0, 2.0)
+            body = (await page.content()).lower()
+            if any(phrase in body for phrase in MBAEX_CLOSED_PHRASES):
+                updates.append({"range": f"E{sheet_row}", "values": [["Closed"]]})
+                print(f"    → CLOSED")
+            else:
+                print(f"    → Still open")
+        except Exception as ex:
+            print(f"    [warn] Could not load {url}: {ex}")
+
+    print(f"  MBA-Exchange closed check: {checked} checked, {len(updates)} closed")
+    return updates
+
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 async def async_main() -> None:
@@ -697,16 +759,26 @@ async def async_main() -> None:
 
             await asyncio.sleep(LLM_SLEEP_SEC)
 
+        # 8b. Check existing Open MBA-Exchange rows for closure
+        # Reuse the logged-in Playwright session before closing the browser.
+        print("\nChecking existing Open MBA-Exchange rows for closure...")
+        close_updates = await check_mbaexchange_closed(page, ws)
+
         await browser.close()
 
-    # 8. Write to sheet
+    # 8. Write new jobs to sheet
     if rows:
         ws.append_rows(rows, value_input_option="USER_ENTERED")
         print(f"\n✓ Added {len(rows)} new jobs from MBA-Exchange to '{SHEET_TAB}'.")
     else:
         print("\nNo qualifying MBA jobs found to add.")
 
-    print(f"  Skipped: {skipped}")
+    # 9. Write closed-job updates
+    if close_updates:
+        ws.batch_update(close_updates)
+        print(f"✓ Marked {len(close_updates)} MBA-Exchange jobs as Closed.")
+
+    print(f"  Skipped (new jobs): {skipped}")
     print("\nDone.\n")
 
 

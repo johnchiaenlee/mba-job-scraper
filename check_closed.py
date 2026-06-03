@@ -129,6 +129,11 @@ def main():
             continue
 
         url = m.group(1)
+
+        # MBA-Exchange URLs require login — handled by scraper_mbaexchange.py
+        if "mba-exchange.com" in url:
+            continue
+
         print(f"  Checking row {sheet_row}: {url[:70]}...")
         checked += 1
 
