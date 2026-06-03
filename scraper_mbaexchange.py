@@ -296,24 +296,76 @@ async def login(page: Page, email: str, password: str) -> bool:
         return True
 
     print(f"  Redirected to login: {page.url}")
+
+    # Wait for the page to fully render (Login.php uses JS to render the form)
+    try:
+        await page.wait_for_load_state("networkidle", timeout=12000)
+    except Exception:
+        pass  # proceed even if networkidle doesn't settle
+    await human_sleep(1.5, 2.5)
+
+    # Screenshot for debugging (saved as artifact if run fails)
+    await page.screenshot(path="login_page.png")
+    print("  Saved login_page.png for debugging")
+
+    # Locate email input — try multiple selectors (placeholder may vary)
+    email_sel = None
+    for sel in [
+        'input[placeholder="Email address"]',
+        'input[placeholder="Email Address"]',
+        'input[type="email"]',
+        'input[name="email"]',
+        'input[name="Email"]',
+        'input[autocomplete="email"]',
+        'input[id*="email" i]',
+    ]:
+        try:
+            el = await page.wait_for_selector(sel, timeout=4000)
+            if el and await el.is_visible():
+                email_sel = sel
+                print(f"  Found email field: {sel}")
+                break
+        except Exception:
+            continue
+
+    if not email_sel:
+        print("[error] Could not find email input — check login_page.png")
+        return False
+
+    # Locate password input
+    pwd_sel = None
+    for sel in [
+        'input[placeholder="Password"]',
+        'input[type="password"]',
+        'input[name="password"]',
+        'input[name="Password"]',
+        'input[id*="password" i]',
+    ]:
+        try:
+            el = await page.query_selector(sel)
+            if el and await el.is_visible():
+                pwd_sel = sel
+                print(f"  Found password field: {sel}")
+                break
+        except Exception:
+            continue
+
+    if not pwd_sel:
+        print("[error] Could not find password input")
+        return False
+
     print("  Filling credentials...")
-
-    # Wait for form fields to be visible
-    await page.wait_for_selector('input[placeholder="Email address"]', timeout=10000)
-
-    await human_type(page, 'input[placeholder="Email address"]', email)
+    await human_type(page, email_sel, email)
     await human_sleep(0.6, 1.3)
-    await human_type(page, 'input[placeholder="Password"]', password)
+    await human_type(page, pwd_sel, password)
     await human_sleep(0.8, 1.6)
 
-    # Submit: press Enter (most reliable regardless of button element type)
-    # Also try clicking visible submit-like elements as fallback
+    # Submit: try button selectors, fall back to Enter key
     submitted = False
     for sel in [
         'button[type="submit"]',
         'input[type="submit"]',
-        'button:text-is("Log In")',
-        'a:text-is("Log In")',
+        'button',   # last resort: first button on page
     ]:
         try:
             el = await page.query_selector(sel)
@@ -326,8 +378,7 @@ async def login(page: Page, email: str, password: str) -> bool:
             continue
 
     if not submitted:
-        # Final fallback: press Enter from the password field
-        await page.locator('input[placeholder="Password"]').press("Enter")
+        await page.locator(pwd_sel).press("Enter")
         print("  Submitted via Enter key")
 
     await page.wait_for_load_state("domcontentloaded", timeout=20000)
