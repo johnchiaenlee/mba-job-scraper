@@ -43,12 +43,19 @@ import gspread
 from google.oauth2.service_account import Credentials
 from playwright.async_api import async_playwright, Page, BrowserContext
 
+# playwright-stealth v1 vs v2 API compatibility
 try:
-    from playwright_stealth import stealth_async
+    from playwright_stealth import stealth_async   # v1 API
     HAS_STEALTH = True
 except ImportError:
-    HAS_STEALTH = False
-    print("[warn] playwright-stealth not installed — bot fingerprints not suppressed")
+    try:
+        from playwright_stealth import Stealth      # v2 API
+        async def stealth_async(page):              # shim to v2
+            await Stealth().apply_stealth_async(page)
+        HAS_STEALTH = True
+    except ImportError:
+        HAS_STEALTH = False
+        print("[warn] playwright-stealth not installed — bot fingerprints not suppressed")
 
 # ── Config ────────────────────────────────────────────────────────────────────
 
@@ -291,15 +298,39 @@ async def login(page: Page, email: str, password: str) -> bool:
     print(f"  Redirected to login: {page.url}")
     print("  Filling credentials...")
 
-    # Confirmed selectors from screenshot
+    # Wait for form fields to be visible
+    await page.wait_for_selector('input[placeholder="Email address"]', timeout=10000)
+
     await human_type(page, 'input[placeholder="Email address"]', email)
     await human_sleep(0.6, 1.3)
     await human_type(page, 'input[placeholder="Password"]', password)
     await human_sleep(0.8, 1.6)
 
-    # Click the "Log In" button (big teal full-width button)
-    await page.click('button:has-text("Log In")')
-    await page.wait_for_load_state("networkidle", timeout=20000)
+    # Submit: press Enter (most reliable regardless of button element type)
+    # Also try clicking visible submit-like elements as fallback
+    submitted = False
+    for sel in [
+        'button[type="submit"]',
+        'input[type="submit"]',
+        'button:text-is("Log In")',
+        'a:text-is("Log In")',
+    ]:
+        try:
+            el = await page.query_selector(sel)
+            if el and await el.is_visible():
+                await el.click(timeout=5000)
+                submitted = True
+                print(f"  Clicked submit via: {sel}")
+                break
+        except Exception:
+            continue
+
+    if not submitted:
+        # Final fallback: press Enter from the password field
+        await page.locator('input[placeholder="Password"]').press("Enter")
+        print("  Submitted via Enter key")
+
+    await page.wait_for_load_state("domcontentloaded", timeout=20000)
     await human_sleep(2.0, 3.5)
 
     if "login" in page.url.lower():
