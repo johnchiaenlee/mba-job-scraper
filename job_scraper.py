@@ -34,8 +34,20 @@ from datetime import datetime
 import anthropic
 import gspread
 import pandas as pd
+import requests
+from bs4 import BeautifulSoup
 from google.oauth2.service_account import Credentials
 from jobspy import scrape_jobs
+
+# Headers for direct LinkedIn page requests
+_HTTP_HEADERS = {
+    "User-Agent": (
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/124.0.0.0 Safari/537.36"
+    ),
+    "Accept-Language": "en-US,en;q=0.9",
+}
 
 # ── Configuration ─────────────────────────────────────────────────────────────
 
@@ -367,6 +379,43 @@ def format_posted_date(job: pd.Series) -> str:
         return ""                     # never write "NaT" or garbage to the sheet
 
 
+def fetch_date_from_page(url: str) -> str:
+    """
+    Fallback: GET the LinkedIn job page and extract datePosted from JSON-LD.
+    LinkedIn embeds structured data for SEO:
+      <script type="application/ld+json">{"@type":"JobPosting","datePosted":"2026-05-13",...}
+    Also tries <time datetime="..."> as a secondary fallback.
+    Returns M/D/YYYY string or "" if not found / request fails.
+    """
+    try:
+        resp = requests.get(url, headers=_HTTP_HEADERS, timeout=10, allow_redirects=True)
+        if resp.status_code != 200:
+            return ""
+        soup = BeautifulSoup(resp.text, "html.parser")
+
+        # Primary: JSON-LD datePosted field
+        for tag in soup.find_all("script", type="application/ld+json"):
+            try:
+                data = json.loads(tag.string or "")
+                if isinstance(data, list):
+                    data = next((d for d in data if d.get("@type") == "JobPosting"), {})
+                if data.get("@type") == "JobPosting" and data.get("datePosted"):
+                    date_str = data["datePosted"][:10]
+                    return datetime.strptime(date_str, "%Y-%m-%d").strftime("%-m/%-d/%Y")
+            except Exception:
+                continue
+
+        # Secondary: <time datetime="YYYY-MM-DD">
+        t = soup.find("time")
+        if t and t.get("datetime"):
+            date_str = t["datetime"][:10]
+            return datetime.strptime(date_str, "%Y-%m-%d").strftime("%-m/%-d/%Y")
+
+    except Exception:
+        pass
+    return ""
+
+
 def hyperlink(url: str, title: str) -> str:
     """Return a =HYPERLINK() formula safe for Google Sheets USER_ENTERED input."""
     safe_title = title.replace('"', "'").replace("\n", " ")
@@ -430,6 +479,15 @@ def main() -> None:
             continue
 
         # ── Build row ─────────────────────────────────────────────────────────
+        # Try JobSpy's date_posted field first; fall back to scraping the page
+        # directly (JSON-LD / <time> tag) when JobSpy returns NaN/empty.
+        posted = format_posted_date(job)
+        if not posted:
+            print(f"    → date_posted missing, fetching from page...")
+            posted = fetch_date_from_page(url)
+            print(f"    → {'fetched: ' + posted if posted else 'no date found'}")
+            time.sleep(2)  # polite delay after extra HTTP request
+
         rows.append([
             company,
             hyperlink(url, title),
@@ -438,7 +496,7 @@ def main() -> None:
             "Open",
             result.get("sponsorship", "Not Specified"),
             result.get("deadline") or "",
-            format_posted_date(job),
+            posted,
         ])
 
         time.sleep(LLM_SLEEP_SEC)
