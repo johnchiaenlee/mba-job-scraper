@@ -36,6 +36,10 @@ CLOSED_PHRASES = [
     "application deadline has passed",
 ]
 
+# LinkedIn redirects closed jobs to /jobs/search/?currentJobId=XXX
+# instead of keeping them at /jobs/view/XXX — detect this redirect
+LINKEDIN_CLOSED_REDIRECT = "/jobs/search/"
+
 HEADERS = {
     "User-Agent": (
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
@@ -59,18 +63,38 @@ def get_worksheet() -> gspread.Worksheet:
     return gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
 
-def is_closed(url: str) -> bool:
-    """Return True if the LinkedIn job URL appears to be closed/removed."""
+def is_closed(url: str) -> tuple[bool, str]:
+    """
+    Return (is_closed, reason) for a job URL.
+
+    Detection signals:
+      1. HTTP 404
+      2. LinkedIn redirect: final URL contains /jobs/search/ (job removed)
+         e.g. https://www.linkedin.com/jobs/search/?currentJobId=XXX&...
+      3. Page body contains known "closed" phrases
+    """
     try:
         resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT,
                             allow_redirects=True)
+
+        # Signal 1: 404
         if resp.status_code == 404:
-            return True
+            return True, "HTTP 404"
+
+        # Signal 2: LinkedIn redirected to search page (job removed/closed)
+        if LINKEDIN_CLOSED_REDIRECT in resp.url:
+            return True, f"redirected → {resp.url[:80]}"
+
+        # Signal 3: Closed phrases in body
         body = resp.text.lower()
-        return any(phrase in body for phrase in CLOSED_PHRASES)
+        for phrase in CLOSED_PHRASES:
+            if phrase in body:
+                return True, f'phrase: "{phrase}"'
+
+        return False, ""
     except Exception as e:
         print(f"    [warn] Request failed ({e}) — skipping")
-        return False  # don't close on network errors
+        return False, ""  # don't close on network errors
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -105,12 +129,13 @@ def main():
         print(f"  Checking row {sheet_row}: {url[:70]}...")
         checked += 1
 
-        if is_closed(url):
+        closed_flag, reason = is_closed(url)
+        if closed_flag:
             updates.append({
                 "range": f"E{sheet_row}",
                 "values": [["Closed"]],
             })
-            print(f"    → CLOSED")
+            print(f"    → CLOSED ({reason})")
             closed += 1
         else:
             print(f"    → Still open")
