@@ -1,0 +1,32 @@
+name: MBA-Exchange Daily Scrape
+
+on:
+  schedule:
+    - cron: "30 12 * * *"   # 5:30am PDT (30 min after LinkedIn scrape)
+  workflow_dispatch:          # allow manual trigger
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Python dependencies
+        run: pip install -r requirements.txt
+
+      - name: Install Playwright browsers
+        run: playwright install chromium --with-deps
+
+      - name: Run MBA-Exchange scraper
+        env:
+          MBA_EXCHANGE_EMAIL:      ${{ secrets.MBA_EXCHANGE_EMAIL }}
+          MBA_EXCHANGE_PASSWORD:   ${{ secrets.MBA_EXCHANGE_PASSWORD }}
+          ANTHROPIC_API_KEY:       ${{ secrets.ANTHROPIC_API_KEY }}
+          GOOGLE_CREDENTIALS_JSON: ${{ secrets.GOOGLE_CREDENTIALS_JSON }}
+        run: python scraper_mbaexchange.py
