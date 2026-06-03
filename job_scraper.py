@@ -42,35 +42,75 @@ from jobspy import scrape_jobs
 SHEET_ID   = "1M5SaGYmAFZAbtxCYwDRz68jXddnBlcvuZNbhnSKFIg8"
 SHEET_TAB  = "Sheet1"
 
-# 16 keywords spanning all target functions and company sizes.
-# Broad enough to surface F500 + startups; LLM handles quality filtering.
-KEYWORDS = [
+# Keywords = generic function keywords + company-specific keywords
+# Generic: surface the long tail across all companies
+# Company-specific: ensure top alumni employers are always checked
+# LLM handles all quality filtering — broad input is intentional.
+
+KEYWORDS_GENERIC = [
     # ── Strategy ──────────────────────────────────────────────────────────────
-    "MBA Strategy Intern",              # broad — catches F500 & startups alike
-    "MBA Corporate Strategy Intern",    # large-co titles (Google, Amazon, etc.)
-    "MBA Strategic Planning Intern",    # mid-size ops-heavy companies
+    "MBA Strategy Intern",
+    "MBA Corporate Strategy Intern",
+    "MBA Strategic Planning Intern",
     # ── Operations ────────────────────────────────────────────────────────────
     "MBA Operations Intern",
-    "MBA Business Operations Intern",   # tech/growth-stage companies
-    "MBA Operations Summer Associate",  # consulting & finance orgs
+    "MBA Business Operations Intern",
+    "MBA Operations Summer Associate",
     # ── Supply Chain ──────────────────────────────────────────────────────────
     "MBA Supply Chain Intern",
     "MBA Supply Chain Summer Intern",
-    "MBA Logistics Intern",             # 3PL, retail, manufacturing
+    "MBA Logistics Intern",
     # ── Program / Project Management ──────────────────────────────────────────
     "MBA Program Manager Intern",
     "MBA Program Management Intern",
-    "MBA Project Management Intern",    # tech companies (FAANG, etc.)
+    "MBA Project Management Intern",
     # ── General / Cross-functional ────────────────────────────────────────────
-    "MBA Summer Associate",             # finance & consulting catch-all
-    "MBA Rotational Program",           # LDP / rotational at large cos
-    "MBA Business Development Intern",  # growth / BD roles
-    "MBA Summer Intern",                # small & mid-size companies
+    "MBA Summer Associate",
+    "MBA Rotational Program",
+    "MBA Business Development Intern",
+    "MBA Summer Intern",
 ]
 
-RESULTS_PER_KEYWORD = 30         # 16 keywords × 30 = ~480 raw before dedup
+KEYWORDS_COMPANY = [
+    # ── Tech ──────────────────────────────────────────────────────────────────
+    "Amazon MBA intern",
+    "Google MBA intern",
+    "Microsoft MBA intern",
+    "Apple MBA intern",
+    "Meta MBA intern",
+    "Salesforce MBA intern",
+    "Adobe MBA intern",
+    "ServiceNow MBA intern",
+    "Oracle MBA intern",
+    # ── Financial Services ────────────────────────────────────────────────────
+    "Capital One MBA intern",
+    "Visa MBA intern",
+    "American Express MBA intern",
+    # ── Healthcare / Pharma ───────────────────────────────────────────────────
+    "Pfizer MBA intern",
+    "Genentech MBA intern",
+    "Amgen MBA intern",
+    "Gilead MBA intern",
+    "Kaiser Permanente MBA intern",
+    "UnitedHealth MBA intern",
+    # ── Consumer / Retail / CPG ───────────────────────────────────────────────
+    "Mattel MBA intern",
+    "General Mills MBA intern",
+    "PepsiCo MBA intern",
+    "Starbucks MBA intern",
+    "Walmart MBA intern",
+    # ── Media / Entertainment ─────────────────────────────────────────────────
+    "Warner Bros MBA intern",
+    "NBCUniversal MBA intern",
+    "Paramount MBA intern",
+    "Live Nation MBA intern",
+]
+
+KEYWORDS = KEYWORDS_GENERIC + KEYWORDS_COMPANY
+
+RESULTS_PER_KEYWORD = 20         # ~60 keywords × 20 = ~1200 raw before dedup
 HOURS_OLD           = 25         # slightly > 24 h to cover timezone edge cases
-SCRAPE_SLEEP_SEC    = 6          # pause between keywords to avoid LinkedIn rate-limit
+SCRAPE_SLEEP_SEC    = 5          # pause between keywords to avoid LinkedIn rate-limit
 LLM_SLEEP_SEC       = 0.3        # pause between Haiku calls
 
 # ── Layer 1: Title pre-filter ──────────────────────────────────────────────────
