@@ -168,19 +168,44 @@ def get_worksheet() -> gspread.Worksheet:
     return gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
 
-def get_existing_urls(ws: gspread.Worksheet) -> set:
+def get_existing_sheet_data(ws: gspread.Worksheet) -> tuple[set, set]:
+    """
+    Read existing sheet rows and return two dedup sets:
+      existing_urls — job URLs already in sheet (catches same-source duplicates)
+      existing_keys — "title_lower|company_lower" pairs (catches cross-source
+                      duplicates, e.g. same job on LinkedIn AND MBA-Exchange)
+    """
     try:
-        formulas = ws.get("B2:B5000", value_render_option="FORMULA")
+        a_col = ws.get("A2:A5000")                               # company
+        b_col = ws.get("B2:B5000", value_render_option="FORMULA")  # HYPERLINK
     except Exception as e:
-        print(f"[warn] Could not read existing URLs: {e}")
-        return set()
-    urls = set()
-    for row in formulas:
-        if row:
-            m = re.search(r'HYPERLINK\("([^"]+)"', str(row[0]))
-            if m:
-                urls.add(m.group(1))
-    return urls
+        print(f"[warn] Could not read existing sheet data: {e}")
+        return set(), set()
+
+    existing_urls: set = set()
+    existing_keys: set = set()
+
+    for i, b_row in enumerate(b_col):
+        if not b_row:
+            continue
+        cell = str(b_row[0])
+
+        # Extract URL from =HYPERLINK("url","title")
+        m_url = re.search(r'HYPERLINK\("([^"]+)"', cell)
+        if m_url:
+            existing_urls.add(m_url.group(1))
+
+        # Extract title (second argument of HYPERLINK)
+        m_title = re.search(r'HYPERLINK\("[^"]+","([^"]+)"', cell)
+        title = m_title.group(1).strip() if m_title else cell.strip()
+
+        # Company from column A
+        company = (a_col[i][0].strip() if i < len(a_col) and a_col[i] else "")
+
+        if title and company:
+            existing_keys.add(f"{title.lower()}|{company.lower()}")
+
+    return existing_urls, existing_keys
 
 
 def hyperlink(url: str, title: str) -> str:
@@ -510,11 +535,11 @@ async def async_main() -> None:
     email    = os.environ["MBA_EXCHANGE_EMAIL"]
     password = os.environ["MBA_EXCHANGE_PASSWORD"]
 
-    # 1. Load existing sheet URLs for dedup
+    # 1. Load existing sheet data for dedup (URL + title|company)
     print("Connecting to Google Sheets...")
     ws = get_worksheet()
-    existing_urls = get_existing_urls(ws)
-    print(f"Existing jobs in sheet: {len(existing_urls)}\n")
+    existing_urls, existing_keys = get_existing_sheet_data(ws)
+    print(f"Existing jobs in sheet: {len(existing_urls)} (URL dedup), {len(existing_keys)} (title+company dedup)\n")
 
     llm_client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
 
@@ -584,19 +609,29 @@ async def async_main() -> None:
             await browser.close()
             return
 
-        # 6. Deduplicate against existing sheet
-        new_jobs = [j for j in jobs if j["url"] and j["url"] not in existing_urls]
-        # Also dedup within batch (same title+company)
-        seen = set()
+        # 6. Three-layer dedup:
+        #    (a) URL match — same source duplicate
+        #    (b) title+company match vs existing sheet rows — cross-source duplicate
+        #        (same job already added from LinkedIn with a different URL)
+        #    (c) title+company match within current batch — MBA-Exchange internal dup
+        seen_keys: set = set()
         deduped = []
-        for j in new_jobs:
+        for j in jobs:
+            if not j["url"]:
+                continue
             key = f"{j['title'].lower()}|{j['company'].lower()}"
-            if key not in seen:
-                seen.add(key)
-                deduped.append(j)
+            if j["url"] in existing_urls:
+                continue                          # (a) URL already in sheet
+            if key in existing_keys:
+                print(f"  [dedup] Already in sheet (diff source): {j['title']} @ {j['company']}")
+                continue                          # (b) same job from LinkedIn
+            if key in seen_keys:
+                continue                          # (c) dup within this batch
+            seen_keys.add(key)
+            deduped.append(j)
         new_jobs = deduped
 
-        print(f"New (not in sheet): {len(new_jobs)}\n")
+        print(f"New after dedup (URL + title+company): {len(new_jobs)}\n")
 
         if not new_jobs:
             print("Sheet already up to date.")
