@@ -309,19 +309,18 @@ async def login(page: Page, email: str, password: str) -> bool:
     await page.screenshot(path="login_page.png")
     print("  Saved login_page.png for debugging")
 
-    # Locate email input — try multiple selectors (placeholder may vary)
+    # Confirmed field IDs from debug run (2026-06-03):
+    #   visible email:    input#sLogEmail   (name="sLogEmail")
+    #   visible password: input#sLogPass    (name="sLogPass")
+    #   hidden duplicates: #emailAddress, #loginPassword — skip those
     email_sel = None
     for sel in [
-        'input[placeholder="Email address"]',
-        'input[placeholder="Email Address"]',
-        'input[type="email"]',
-        'input[name="email"]',
-        'input[name="Email"]',
-        'input[autocomplete="email"]',
-        'input[id*="email" i]',
+        "input#sLogEmail",           # confirmed visible field
+        'input[name="sLogEmail"]',
+        'input[type="email"]:visible',
     ]:
         try:
-            el = await page.wait_for_selector(sel, timeout=4000)
+            el = await page.wait_for_selector(sel, timeout=5000)
             if el and await el.is_visible():
                 email_sel = sel
                 print(f"  Found email field: {sel}")
@@ -330,36 +329,14 @@ async def login(page: Page, email: str, password: str) -> bool:
             continue
 
     if not email_sel:
-        # Dump all inputs on page for debugging
-        try:
-            all_inputs = await page.evaluate("""() => {
-                return Array.from(document.querySelectorAll('input, textarea')).map(el => ({
-                    tag: el.tagName,
-                    type: el.type,
-                    name: el.name,
-                    id: el.id,
-                    placeholder: el.placeholder,
-                    classes: el.className,
-                    visible: el.offsetParent !== null
-                }));
-            }""")
-            print(f"[debug] All inputs on page: {json.dumps(all_inputs, indent=2)}")
-            page_title = await page.title()
-            page_url = page.url
-            print(f"[debug] Page title: {page_title!r}  URL: {page_url}")
-        except Exception as de:
-            print(f"[debug] Could not enumerate inputs: {de}")
         print("[error] Could not find email input — check login_page.png artifact")
         return False
 
-    # Locate password input
     pwd_sel = None
     for sel in [
-        'input[placeholder="Password"]',
-        'input[type="password"]',
-        'input[name="password"]',
-        'input[name="Password"]',
-        'input[id*="password" i]',
+        "input#sLogPass",            # confirmed visible field
+        'input[name="sLogPass"]',
+        'input[type="password"]:visible',
     ]:
         try:
             el = await page.query_selector(sel)
@@ -380,26 +357,10 @@ async def login(page: Page, email: str, password: str) -> bool:
     await human_type(page, pwd_sel, password)
     await human_sleep(0.8, 1.6)
 
-    # Submit: try button selectors, fall back to Enter key
-    submitted = False
-    for sel in [
-        'button[type="submit"]',
-        'input[type="submit"]',
-        'button',   # last resort: first button on page
-    ]:
-        try:
-            el = await page.query_selector(sel)
-            if el and await el.is_visible():
-                await el.click(timeout=5000)
-                submitted = True
-                print(f"  Clicked submit via: {sel}")
-                break
-        except Exception:
-            continue
-
-    if not submitted:
-        await page.locator(pwd_sel).press("Enter")
-        print("  Submitted via Enter key")
+    # Submit: press Enter from the password field (most reliable cross-browser)
+    # The visible login form uses id="sLogPass" — Enter submits its parent form
+    await page.locator(pwd_sel).press("Enter")
+    print("  Submitted via Enter key")
 
     await page.wait_for_load_state("domcontentloaded", timeout=20000)
     await human_sleep(2.0, 3.5)
