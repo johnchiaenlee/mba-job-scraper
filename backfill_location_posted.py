@@ -76,7 +76,7 @@ def build_location(job: pd.Series) -> str:
 def format_posted_date(job: pd.Series) -> str:
     """Return actual post date as M/D/YYYY — Google Sheets formula computes age."""
     raw = job.get("date_posted")
-    if raw is None:
+    if raw is None or pd.isna(raw):   # catches None, NaN, NaT
         return ""
     try:
         if hasattr(raw, "date"):
@@ -87,7 +87,7 @@ def format_posted_date(job: pd.Series) -> str:
             posted = raw
         return posted.strftime("%-m/%-d/%Y")
     except Exception:
-        return str(raw)
+        return ""   # return empty, not "nan" / "NaT"
 
 
 
@@ -152,11 +152,14 @@ def main():
         row_num  = url_to_row[url]
         location = build_location(job)
         posted   = format_posted_date(job)
+        raw_date = job.get("date_posted")  # debug: log raw value type
 
         updates.append({"range": f"D{row_num}", "values": [[location]]})
-        updates.append({"range": f"H{row_num}", "values": [[posted]]})
+        if posted:   # only write date if we actually have one — never overwrite with blank
+            updates.append({"range": f"H{row_num}", "values": [[posted]]})
         matched += 1
-        print(f"  Row {row_num}: location='{location}'  posted='{posted}'")
+        print(f"  Row {row_num}: location='{location}'  posted='{posted or '(no date)'}'"
+              f"  [raw_date={repr(raw_date)}, type={type(raw_date).__name__}]")
 
     # 4. Write updates in one batch call
     if updates:
