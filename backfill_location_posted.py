@@ -162,49 +162,67 @@ def main():
         matched += 1
         print(f"  Row {row_num}: posted='{posted or '(no date from keyword search)'}'")
 
-    # 3b. For rows still missing dates: fetch by LinkedIn job ID directly
-    # LinkedIn URLs look like: https://www.linkedin.com/jobs/view/1234567890/
-    already_have = {u for u in url_to_row if u not in unmatched_urls}
+    # 3b. For rows still missing dates: fetch LinkedIn page directly and parse JSON-LD
+    scraped_urls = {safe(j.get("job_url", "")) for _, j in scraped.iterrows()}
     still_empty  = {url: row for url, row in url_to_row.items()
-                    if url not in {safe(j.get("job_url","")) for _, j in scraped.iterrows()}}
+                    if url not in scraped_urls}
     all_missing  = {**unmatched_urls, **still_empty}
 
     if all_missing:
-        print(f"\nTrying direct job-ID fetch for {len(all_missing)} rows with no date...")
-        job_id_to_url = {}
-        for url in all_missing:
-            m = re.search(r'/jobs/view/(\d+)', url)
-            if m:
-                job_id_to_url[m.group(1)] = url
+        print(f"\nRound 3: fetching {len(all_missing)} pages directly for datePosted...")
+        import requests
+        from bs4 import BeautifulSoup
 
-        if job_id_to_url:
-            # Fetch in batches of 25 to avoid rate-limiting
-            ids = list(job_id_to_url.keys())
-            for i in range(0, len(ids), 25):
-                batch = ids[i:i+25]
-                try:
-                    df_ids = scrape_jobs(
-                        site_name=["linkedin"],
-                        linkedin_job_ids=batch,
-                        linkedin_fetch_description=False,
-                    )
-                    for _, job in df_ids.iterrows():
-                        url  = safe(job.get("job_url", ""))
-                        if url not in all_missing:
-                            # try matching by job ID in URL
-                            m = re.search(r'/jobs/view/(\d+)', url)
-                            if m and m.group(1) in job_id_to_url:
-                                url = job_id_to_url[m.group(1)]
-                        if url not in all_missing:
-                            continue
-                        posted = format_posted_date(job)
-                        if posted:
-                            row_num = all_missing[url]
-                            updates.append({"range": f"H{row_num}", "values": [[posted]]})
-                            print(f"  Row {row_num}: posted='{posted}' (via job-ID fetch)")
-                except Exception as e:
-                    print(f"  [warn] Job-ID batch fetch failed: {e}")
-                time.sleep(SCRAPE_SLEEP_SEC)
+        HEADERS = {
+            "User-Agent": (
+                "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/124.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "en-US,en;q=0.9",
+        }
+
+        for url, row_num in all_missing.items():
+            try:
+                resp = requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True)
+                if resp.status_code != 200:
+                    print(f"  Row {row_num}: HTTP {resp.status_code} — skipping")
+                    time.sleep(2)
+                    continue
+
+                # Try JSON-LD first (most reliable)
+                soup = BeautifulSoup(resp.text, "html.parser")
+                date_str = None
+
+                for tag in soup.find_all("script", type="application/ld+json"):
+                    try:
+                        data = json.loads(tag.string or "")
+                        if isinstance(data, list):
+                            data = next((d for d in data if d.get("@type") == "JobPosting"), {})
+                        if data.get("@type") == "JobPosting" and data.get("datePosted"):
+                            date_str = data["datePosted"][:10]   # "2026-05-13"
+                            break
+                    except Exception:
+                        continue
+
+                # Fallback: <time> tag
+                if not date_str:
+                    t = soup.find("time")
+                    if t and t.get("datetime"):
+                        date_str = t["datetime"][:10]
+
+                if date_str:
+                    from datetime import datetime as dt
+                    posted = dt.strptime(date_str, "%Y-%m-%d").strftime("%-m/%-d/%Y")
+                    updates.append({"range": f"H{row_num}", "values": [[posted]]})
+                    print(f"  Row {row_num}: posted='{posted}' (via page scrape)")
+                else:
+                    print(f"  Row {row_num}: no date found in page")
+
+            except Exception as e:
+                print(f"  Row {row_num}: error — {e}")
+
+            time.sleep(3)   # be polite, avoid rate-limit
 
     # 4. Write all updates in one batch call
     if updates:
