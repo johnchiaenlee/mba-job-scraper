@@ -29,11 +29,14 @@ REQUEST_SLEEP  = 3      # seconds between URL checks (be polite to LinkedIn)
 REQUEST_TIMEOUT = 10    # seconds
 
 CLOSED_PHRASES = [
+    # LinkedIn
     "no longer accepting applications",
     "this job is no longer available",
     "job has expired",
     "this position has been filled",
     "application deadline has passed",
+    # MBA-Exchange: "We regret the job is no more available."
+    "the job is no more available",
 ]
 
 # LinkedIn redirects closed jobs to /jobs/search/?currentJobId=XXX
