@@ -216,36 +216,54 @@ async def human_type(page: Page, selector: str, text: str) -> None:
     await asyncio.sleep(random.uniform(0.2, 0.5))
 
 
-async def human_scroll_to_bottom(page: Page) -> None:
+async def human_scroll_to_bottom(page: Page) -> int:
     """
-    Gradually scroll the page in random increments until no new content loads.
-    Mimics a human reading through results.
+    Gradually scroll #lstJobs until no new div.job-instructor-layout cards appear.
+    Returns the final card count.
+
+    Confirmed HTML structure:
+      div#lstJobs
+        └─ div.col-xl-3... (wrapper per card)
+             └─ div.job-instructor-layout  ← the actual card
     """
+    # Read expected total from the counter badge
+    try:
+        total_el = await page.query_selector("span#nbJobsResult")
+        total_text = (await total_el.inner_text()).strip() if total_el else ""
+        expected = int(re.sub(r"[^\d]", "", total_text)) if total_text else None
+        if expected:
+            print(f"  Expecting {expected} job cards total")
+    except Exception:
+        expected = None
+
     prev_count = 0
     stale_rounds = 0
 
     while stale_rounds < 3:
-        # Scroll a random amount between 400-800px
-        scroll_px = random.randint(400, 800)
+        scroll_px = random.randint(450, 850)
         await page.mouse.wheel(0, scroll_px)
-        await asyncio.sleep(random.uniform(1.2, 2.5))  # wait for content to load
+        await asyncio.sleep(random.uniform(1.2, 2.5))
 
-        # Count loaded job cards
-        cards = await page.query_selector_all("div.job-card, div[class*='jobCard'], article[class*='job']")
+        cards = await page.query_selector_all("div.job-instructor-layout")
         count = len(cards)
 
         if count > prev_count:
-            print(f"    Loaded {count} cards so far...")
+            print(f"    Loaded {count}/{expected or '?'} cards...")
             prev_count = count
             stale_rounds = 0
         else:
             stale_rounds += 1
 
-        # Occasionally pause a bit longer (simulates reading)
+        # If we've hit the expected total, stop early
+        if expected and count >= expected:
+            print(f"    All {count} cards loaded ✓")
+            break
+
         if random.random() < 0.2:
             await asyncio.sleep(random.uniform(1.0, 2.0))
 
-    print(f"  Scroll complete — {prev_count} job cards loaded total")
+    print(f"  Scroll complete — {prev_count} job cards loaded")
+    return prev_count
 
 
 # ── Login ─────────────────────────────────────────────────────────────────────
@@ -310,70 +328,65 @@ async def _find_selector(page: Page, selectors: list[str]) -> str | None:
 async def scrape_job_cards(page: Page) -> list[dict]:
     """
     Parse all loaded job cards on the search results page.
-    Returns list of dicts with: title, company, location, date, url, h1b
-    """
-    cards = await page.query_selector_all(
-        "div.job-card, div[class*='jobCard'], div[class*='job-card'], article[class*='job']"
-    )
-    if not cards:
-        # Fallback: try to find any card-like container with a View button
-        cards = await page.query_selector_all("div:has(a:text('View'))")
+    Returns list of dicts: title, company, location, date, url, h1b
 
+    Confirmed HTML structure (from DevTools inspection):
+      div#lstJobs
+        └─ div.col-xl-3.col-lg-4... (grid wrapper)
+             └─ div.job-instructor-layout          ← one card per job
+                  ├─ div.left-tags-capt            ← date badge ("Jun, 02")
+                  ├─ div.brows-job-type            ← job type
+                  ├─ div.job-instructor-thumb      ← company logo
+                  ├─ div.job-instructor-content
+                  │    ├─ div.jbs-job-employer-wrap   ← company name
+                  │    ├─ p.h4.instructor-title       ← job title
+                  │    ├─ div.text-center.text-sm-muted ← location
+                  │    └─ div.jbs-grid-job-edrs-group   ← tags (H1B, etc.)
+                  └─ div.jbs-grid-job-apply-btns a  ← "View" link
+    """
+    cards = await page.query_selector_all("div.job-instructor-layout")
     print(f"  Parsing {len(cards)} job cards...")
     jobs = []
 
     for card in cards:
         try:
-            # Title — usually the most prominent text, inside a heading or link
-            title = await _card_text(card, [
-                "h3", "h4", "h2",
-                "[class*='title']", "[class*='Title']",
-                "a[href*='jobView']",
-            ])
-
-            # Company
-            company = await _card_text(card, [
-                "[class*='company']", "[class*='Company']",
-                "[class*='employer']", "[class*='Employer']",
-                "p strong", "strong",
-            ])
-
-            # Location
-            location = await _card_text(card, [
-                "[class*='location']", "[class*='Location']",
-                "span[class*='loc']",
-                # MBA-Exchange often shows "USA(Florida)" style
-                "p:has-text('USA')", "span:has-text('USA')",
-            ])
-
-            # Date badge (top-left, format "Jun, 02")
-            date_raw = await _card_text(card, [
-                "[class*='date']", "[class*='Date']",
-                "span.badge", ".badge", "small",
-            ])
+            # ── Date (top-left badge, e.g. "Jun, 02") ─────────────────────────
+            date_raw = await _el_text(card, "div.left-tags-capt")
             posted = parse_date_str(date_raw) if date_raw else datetime.utcnow().strftime("%-m/%-d/%Y")
 
-            # View URL
+            # ── Company name ───────────────────────────────────────────────────
+            company = await _el_text(card, "div.jbs-job-employer-wrap")
+
+            # ── Job title ──────────────────────────────────────────────────────
+            title = await _el_text(card, "p.instructor-title")
+
+            # ── Location (e.g. "USA(Florida)", "USA") ─────────────────────────
+            location = await _el_text(card, "div.text-center.text-sm-muted")
+
+            # ── H1B sponsor badge ──────────────────────────────────────────────
+            edrs_text = await _el_text(card, "div.jbs-grid-job-edrs-group")
+            h1b = "Yes" if "h1b" in (edrs_text or "").lower() or "h-1b" in (edrs_text or "").lower() else "Not Specified"
+
+            # ── View URL ───────────────────────────────────────────────────────
             url = ""
-            view_link = await card.query_selector("a:has-text('View'), a[href*='jobView'], a[href*='job_view']")
-            if view_link:
-                href = await view_link.get_attribute("href")
+            view_el = await card.query_selector("div.jbs-grid-job-apply-btns a")
+            if view_el:
+                href = await view_el.get_attribute("href")
                 if href:
                     url = href if href.startswith("http") else f"https://www.mba-exchange.com{href}"
-
-            # H1B sponsor badge
-            h1b_el = await card.query_selector("[class*='sponsor'], [class*='Sponsor'], :has-text('H1B'), :has-text('H-1B')")
-            h1b = "Yes" if h1b_el else "Not Specified"
 
             if title and url:
                 jobs.append({
                     "title": title.strip(),
-                    "company": company.strip() if company else "",
-                    "location": location.strip() if location else "USA",
+                    "company": (company or "").strip(),
+                    "location": (location or "USA").strip(),
                     "posted": posted,
                     "url": url,
                     "h1b": h1b,
                 })
+            else:
+                print(f"    [warn] Skipped card — missing title or URL (title={title!r})")
+
         except Exception as e:
             print(f"    [warn] Error parsing card: {e}")
             continue
@@ -381,51 +394,48 @@ async def scrape_job_cards(page: Page) -> list[dict]:
     return jobs
 
 
-async def _card_text(card, selectors: list[str]) -> str:
-    """Try each selector on a card element and return the first non-empty text."""
-    for sel in selectors:
-        try:
-            el = await card.query_selector(sel)
-            if el:
-                text = (await el.inner_text()).strip()
-                if text:
-                    return text
-        except Exception:
-            continue
+async def _el_text(parent, selector: str) -> str:
+    """Return inner text of the first matching child element, or ''."""
+    try:
+        el = await parent.query_selector(selector)
+        if el:
+            return (await el.inner_text()).strip()
+    except Exception:
+        pass
     return ""
 
 
 async def get_job_description(page: Page, url: str) -> str:
     """
-    Visit the job detail page and extract the description text.
-    Uses a fresh navigation (not a new tab) with human delays.
+    Visit the MBA-Exchange job detail page and extract the description text.
+    Tries MBA-Exchange-specific containers first, then falls back to <main>/<body>.
     """
     try:
         await page.goto(url, wait_until="domcontentloaded", timeout=20000)
         await human_sleep(1.5, 3.0)
 
-        # Try common description containers
-        desc = await _page_text(page, [
-            "[class*='description']", "[class*='Description']",
-            "[class*='job-detail']", "[class*='jobDetail']",
-            "article", "main", ".content",
-        ])
-        return desc[:8000] if desc else ""
+        # MBA-Exchange detail page selectors (try specific → broad)
+        for sel in [
+            "div.job-description",
+            "div.jbs-job-description",
+            "div[class*='job-desc']",
+            "div[class*='jobDesc']",
+            "div.tab-content",
+            "div.single-instructor-details",
+            "main",
+            "div#content",
+            "body",
+        ]:
+            try:
+                el = await page.query_selector(sel)
+                if el:
+                    text = (await el.inner_text()).strip()
+                    if len(text) > 150:
+                        return text[:8000]
+            except Exception:
+                continue
     except Exception as e:
         print(f"    [warn] Failed to load detail page: {e}")
-        return ""
-
-
-async def _page_text(page: Page, selectors: list[str]) -> str:
-    for sel in selectors:
-        try:
-            el = await page.query_selector(sel)
-            if el:
-                text = (await el.inner_text()).strip()
-                if len(text) > 100:  # must be substantive
-                    return text
-        except Exception:
-            continue
     return ""
 
 
@@ -488,14 +498,12 @@ async def async_main() -> None:
             print(f"\nAlready on job search page ✓")
             await human_sleep(1.0, 2.0)
 
-        # Wait for job cards to appear
+        # Wait for job cards to appear (confirmed selector: div.job-instructor-layout)
         try:
-            await page.wait_for_selector(
-                "div.job-card, div[class*='jobCard'], a:has-text('View')",
-                timeout=15000,
-            )
+            await page.wait_for_selector("div.job-instructor-layout", timeout=20000)
+            print("  Job cards detected ✓")
         except Exception:
-            print("[warn] Job cards did not appear within timeout — proceeding anyway")
+            print("[warn] Job cards did not appear within timeout — check login or selectors")
             await page.screenshot(path="search_debug.png")
 
         # 4. Scroll to load all results
