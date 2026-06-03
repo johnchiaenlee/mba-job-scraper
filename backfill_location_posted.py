@@ -141,8 +141,9 @@ def main():
     print(f"\nTotal unique scraped: {len(scraped)}")
 
     # 3. Match scraped jobs to existing rows and build batch update
-    updates = []
-    matched = 0
+    updates  = []
+    matched  = 0
+    unmatched_urls = {}   # url → row_num, for rows still missing dates after keyword pass
 
     for _, job in scraped.iterrows():
         url = safe(job.get("job_url", ""))
@@ -152,22 +153,65 @@ def main():
         row_num  = url_to_row[url]
         location = build_location(job)
         posted   = format_posted_date(job)
-        raw_date = job.get("date_posted")  # debug: log raw value type
 
         updates.append({"range": f"D{row_num}", "values": [[location]]})
-        if posted:   # only write date if we actually have one — never overwrite with blank
+        if posted:
             updates.append({"range": f"H{row_num}", "values": [[posted]]})
+        else:
+            unmatched_urls[url] = row_num   # has no date yet — try job-ID fetch next
         matched += 1
-        print(f"  Row {row_num}: location='{location}'  posted='{posted or '(no date)'}'"
-              f"  [raw_date={repr(raw_date)}, type={type(raw_date).__name__}]")
+        print(f"  Row {row_num}: posted='{posted or '(no date from keyword search)'}'")
 
-    # 4. Write updates in one batch call
+    # 3b. For rows still missing dates: fetch by LinkedIn job ID directly
+    # LinkedIn URLs look like: https://www.linkedin.com/jobs/view/1234567890/
+    already_have = {u for u in url_to_row if u not in unmatched_urls}
+    still_empty  = {url: row for url, row in url_to_row.items()
+                    if url not in {safe(j.get("job_url","")) for _, j in scraped.iterrows()}}
+    all_missing  = {**unmatched_urls, **still_empty}
+
+    if all_missing:
+        print(f"\nTrying direct job-ID fetch for {len(all_missing)} rows with no date...")
+        job_id_to_url = {}
+        for url in all_missing:
+            m = re.search(r'/jobs/view/(\d+)', url)
+            if m:
+                job_id_to_url[m.group(1)] = url
+
+        if job_id_to_url:
+            # Fetch in batches of 25 to avoid rate-limiting
+            ids = list(job_id_to_url.keys())
+            for i in range(0, len(ids), 25):
+                batch = ids[i:i+25]
+                try:
+                    df_ids = scrape_jobs(
+                        site_name=["linkedin"],
+                        linkedin_job_ids=batch,
+                        linkedin_fetch_description=False,
+                    )
+                    for _, job in df_ids.iterrows():
+                        url  = safe(job.get("job_url", ""))
+                        if url not in all_missing:
+                            # try matching by job ID in URL
+                            m = re.search(r'/jobs/view/(\d+)', url)
+                            if m and m.group(1) in job_id_to_url:
+                                url = job_id_to_url[m.group(1)]
+                        if url not in all_missing:
+                            continue
+                        posted = format_posted_date(job)
+                        if posted:
+                            row_num = all_missing[url]
+                            updates.append({"range": f"H{row_num}", "values": [[posted]]})
+                            print(f"  Row {row_num}: posted='{posted}' (via job-ID fetch)")
+                except Exception as e:
+                    print(f"  [warn] Job-ID batch fetch failed: {e}")
+                time.sleep(SCRAPE_SLEEP_SEC)
+
+    # 4. Write all updates in one batch call
     if updates:
         ws.batch_update(updates, value_input_option="USER_ENTERED")
-        print(f"\n✓ Updated {matched} rows (location + posted date).")
+        print(f"\n✓ Batch update written.")
     else:
-        print("\nNo URL matches found — no rows updated.")
-        print("This can happen if LinkedIn no longer serves those job URLs.")
+        print("\nNo updates to write.")
 
     print("\nDone.\n")
 
