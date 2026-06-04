@@ -38,6 +38,7 @@ import re
 import sys
 import time
 from datetime import datetime
+from urllib.parse import urljoin
 
 import anthropic
 import gspread
@@ -456,12 +457,15 @@ async def scrape_job_cards(page: Page) -> list[dict]:
             h1b = "Yes" if "h1b" in (edrs_text or "").lower() or "h-1b" in (edrs_text or "").lower() else "Not Specified"
 
             # ── View URL ───────────────────────────────────────────────────────
+            # Use urljoin so relative hrefs like "JobDetail_p.php?sID=xxx"
+            # are resolved against the search page base, giving:
+            # https://www.mba-exchange.com/candidates/JobDetail_p.php?sID=xxx
             url = ""
             view_el = await card.query_selector("div.jbs-grid-job-apply-btns a")
             if view_el:
                 href = await view_el.get_attribute("href")
                 if href:
-                    url = href if href.startswith("http") else f"https://www.mba-exchange.com{href}"
+                    url = urljoin(SEARCH_URL, href)
 
             if title and url:
                 jobs.append({
