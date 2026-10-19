@@ -80,11 +80,12 @@ A role counts as MBA-targeted only if it is a **temporary internship** and is ai
 |---|---|---|
 | [`job_scraper.py`](job_scraper.py) | **Core.** LinkedIn scrape → filter → append | Daily, 5:00am PT |
 | [`scraper_mbaexchange.py`](scraper_mbaexchange.py) | Logged-in MBA-Exchange scrape with human-like browsing (stealth, random delays, natural typing and scrolling) | Daily, 5:30am PT |
-| [`check_closed.py`](check_closed.py) | Re-checks `Open` rows and marks expired postings `Closed` (handles 404s, LinkedIn redirects, MBA-Exchange closed pages) | Weekly, Mon 7:00am PT |
+| [`check_closed.py`](check_closed.py) | Re-checks `Open` rows and marks expired postings `Closed` (handles 404s, LinkedIn redirects, MBA-Exchange closed pages). Retries rate-limited checks and fails the run if too many can't be completed | Weekly, Mon 7:00am PT |
 | [`recheck_mba.py`](recheck_mba.py) | Re-runs the classifier on existing rows after prompt rules change | Manual |
 | [`backfill_keywords_90d.py`](backfill_keywords_90d.py) | One-off 90-day lookback for newly added keywords | Manual |
 | [`backfill_location_posted.py`](backfill_location_posted.py) | One-off fix to fill Location and Posted on older rows | Manual |
 | [`fix_mbaex_urls.py`](fix_mbaex_urls.py) | One-off repair for malformed MBA-Exchange URLs | Manual |
+| [`eval/`](eval) | Gold set (100 hand-labeled jobs) and scoring script for the closed-job checker | Manual |
 | [`.github/workflows/`](.github/workflows) | One workflow per script; every one can also be triggered by hand | |
 
 ## 5. Getting Started

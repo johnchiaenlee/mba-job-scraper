@@ -7,14 +7,20 @@ If the job is no longer available, update Status → "Closed".
 
 Signals that a job is closed:
   - HTTP 404
+  - LinkedIn redirects away from /jobs/view/ (e.g. ?trk=expired_jd_redirect)
   - Response contains "No longer accepting applications"
   - Response contains "This job is no longer available"
   - Response contains "job has expired"
+
+Rate-limited / errored checks (429, 999, 5xx, network) are retried, then
+counted as "unknown" and left Open. The run fails if too many are unknown,
+so a blocked run can't pass silently.
 """
 
 import json
 import os
 import re
+import sys
 import time
 
 import gspread
@@ -27,6 +33,10 @@ SHEET_ID       = "1M5SaGYmAFZAbtxCYwDRz68jXddnBlcvuZNbhnSKFIg8"
 SHEET_TAB      = "Sheet1"
 REQUEST_SLEEP  = 3      # seconds between URL checks (be polite to LinkedIn)
 REQUEST_TIMEOUT = 10    # seconds
+RETRY_STATUSES  = {429, 999, 500, 502, 503, 504}  # 999 = LinkedIn bot block
+MAX_RETRIES     = 3
+RETRY_BACKOFF   = 30    # seconds, multiplied by attempt number
+MAX_UNKNOWN_PCT = 10    # fail the run if more than this % couldn't be checked
 
 CLOSED_PHRASES = [
     # LinkedIn
@@ -39,9 +49,10 @@ CLOSED_PHRASES = [
     "the job is no more available",
 ]
 
-# LinkedIn redirects closed jobs to /jobs/search/?currentJobId=XXX
-# instead of keeping them at /jobs/view/XXX — detect this redirect
-LINKEDIN_CLOSED_REDIRECT = "/jobs/search/"
+# LinkedIn redirects removed jobs away from /jobs/view/XXX — originally to
+# /jobs/search/?currentJobId=XXX, now to /jobs/<keyword>-jobs?trk=expired_jd_redirect
+LINKEDIN_JOB_PATH = "/jobs/view/"
+LINKEDIN_CLOSED_REDIRECTS = ["/jobs/search/", "trk=expired_jd_redirect"]
 
 HEADERS = {
     "User-Agent": (
@@ -66,38 +77,52 @@ def get_worksheet() -> gspread.Worksheet:
     return gc.open_by_key(SHEET_ID).worksheet(SHEET_TAB)
 
 
-def is_closed(url: str) -> tuple[bool, str]:
+def check_status(url: str) -> tuple[str, str]:
     """
-    Return (is_closed, reason) for a job URL.
+    Return (status, reason) for a job URL, where status is
+    "closed", "open", or "unknown" (couldn't get a usable response).
 
     Detection signals:
       1. HTTP 404
-      2. LinkedIn redirect: final URL contains /jobs/search/ (job removed)
-         e.g. https://www.linkedin.com/jobs/search/?currentJobId=XXX&...
+      2. LinkedIn redirect to a job-search page (job removed); any other
+         redirect away from /jobs/view/ (e.g. sign-in wall) is "unknown"
       3. Page body contains known "closed" phrases
     """
-    try:
-        resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT,
-                            allow_redirects=True)
+    for attempt in range(MAX_RETRIES + 1):
+        if attempt:
+            time.sleep(RETRY_BACKOFF * attempt)
+        try:
+            resp = requests.get(url, headers=HEADERS, timeout=REQUEST_TIMEOUT,
+                                allow_redirects=True)
+        except Exception as e:
+            reason = f"request failed ({e})"
+            continue
+        if resp.status_code in RETRY_STATUSES:
+            reason = f"HTTP {resp.status_code}"
+            continue
+        break
+    else:
+        return "unknown", reason
 
-        # Signal 1: 404
-        if resp.status_code == 404:
-            return True, "HTTP 404"
+    # Signal 1: 404
+    if resp.status_code == 404:
+        return "closed", "HTTP 404"
 
-        # Signal 2: LinkedIn redirected to search page (job removed/closed)
-        if LINKEDIN_CLOSED_REDIRECT in resp.url:
-            return True, f"redirected → {resp.url[:80]}"
+    # Signal 2: LinkedIn redirected away from the job page
+    if LINKEDIN_JOB_PATH in url and LINKEDIN_JOB_PATH not in resp.url:
+        if any(r in resp.url for r in LINKEDIN_CLOSED_REDIRECTS):
+            return "closed", f"redirected → {resp.url[:80]}"
+        return "unknown", f"unexpected redirect → {resp.url[:80]}"
 
-        # Signal 3: Closed phrases in body
-        body = resp.text.lower()
-        for phrase in CLOSED_PHRASES:
-            if phrase in body:
-                return True, f'phrase: "{phrase}"'
+    # Signal 3: Closed phrases in body
+    body = resp.text.lower()
+    for phrase in CLOSED_PHRASES:
+        if phrase in body:
+            return "closed", f'phrase: "{phrase}"'
 
-        return False, ""
-    except Exception as e:
-        print(f"    [warn] Request failed ({e}) — skipping")
-        return False, ""  # don't close on network errors
+    if resp.status_code != 200:
+        return "unknown", f"HTTP {resp.status_code}"
+    return "open", ""
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -112,7 +137,7 @@ def main():
     e_col = ws.get("E2:E5000")
 
     updates = []
-    checked = closed = skipped = 0
+    checked = closed = skipped = unknown = 0
 
     for i, (b_row, e_row) in enumerate(zip(b_col, e_col)):
         sheet_row = i + 2  # 1-indexed; row 1 is header
@@ -137,14 +162,17 @@ def main():
         print(f"  Checking row {sheet_row}: {url[:70]}...")
         checked += 1
 
-        closed_flag, reason = is_closed(url)
-        if closed_flag:
+        status, reason = check_status(url)
+        if status == "closed":
             updates.append({
                 "range": f"E{sheet_row}",
                 "values": [["Closed"]],
             })
             print(f"    → CLOSED ({reason})")
             closed += 1
+        elif status == "unknown":
+            print(f"    → UNKNOWN ({reason}) — left Open")
+            unknown += 1
         else:
             print(f"    → Still open")
             skipped += 1
@@ -157,6 +185,12 @@ def main():
         print(f"\n✓ Marked {closed} jobs as Closed (out of {checked} checked).")
     else:
         print(f"\nAll {checked} checked jobs are still open.")
+
+    print(f"Summary: {checked} checked | {closed} closed | {skipped} open | {unknown} unknown")
+    if checked and unknown * 100 / checked > MAX_UNKNOWN_PCT:
+        print(f"\n[error] {unknown}/{checked} jobs couldn't be checked "
+              f"(> {MAX_UNKNOWN_PCT}%) — likely rate-limited. Failing run.")
+        sys.exit(1)
 
     print("\nDone.\n")
 
