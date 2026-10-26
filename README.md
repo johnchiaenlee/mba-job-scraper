@@ -85,7 +85,7 @@ A role counts as MBA-targeted only if it is a **temporary internship** and is ai
 | [`backfill_keywords_90d.py`](backfill_keywords_90d.py) | One-off 90-day lookback for newly added keywords | Manual |
 | [`backfill_location_posted.py`](backfill_location_posted.py) | One-off fix to fill Location and Posted on older rows | Manual |
 | [`fix_mbaex_urls.py`](fix_mbaex_urls.py) | One-off repair for malformed MBA-Exchange URLs | Manual |
-| [`eval/`](eval) | Gold set (100 hand-labeled jobs) and scoring script for the closed-job checker | Manual |
+| [`eval/`](eval) | Closed-checker gold set; red-team suite (`redteam.py`) and real-posting regression (`regression_real.py`), run by the *Red-Team Tests* workflow | Manual |
 | [`.github/workflows/`](.github/workflows) | One workflow per script; every one can also be triggered by hand | |
 
 ## 5. Getting Started
@@ -128,6 +128,7 @@ python job_scraper.py
 - **Cheap layer first.** The keyword pre-filter catches most irrelevant results at no cost, so the paid model only sees plausible candidates. Haiku was chosen for cost and speed on a high-volume classification task.
 - **Default to "no".** A missed role costs less than a feed full of noise. Rejected rows can be audited, and `Not MBA` rows stay visible instead of being deleted.
 - **Serverless by design.** GitHub Actions cron means nothing to host and nothing to maintain, and every workflow can also be run by hand for debugging.
+- **Safeguards between the AI and the sheet.** The AI can only suggest; code decides. A job is kept only if the AI says so explicitly *and* quotes MBA wording that really appears in the posting. AI fields are checked against allowed values, outside text can't become a spreadsheet formula, and the run fails loudly if the AI step breaks.
 - **The sheet is the UI.** Recruiting already happens in spreadsheets, so meeting users there beats building a new app.
 
 ## 7. Roadmap
