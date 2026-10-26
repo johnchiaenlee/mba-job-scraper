@@ -9,6 +9,8 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0   # need history to compare against the pre-safeguard version
 
       - uses: actions/setup-python@v5
         with:
@@ -21,3 +23,10 @@ jobs:
         env:
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: python eval/redteam.py job_scraper.py 3
+
+      - name: Regression on real postings (vs. pre-safeguard version)
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          git show fe4e632:job_scraper.py > /tmp/job_scraper_before.py
+          python eval/regression_real.py /tmp/job_scraper_before.py job_scraper.py

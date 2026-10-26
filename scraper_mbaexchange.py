@@ -68,6 +68,9 @@ LOGIN_URL  = "https://www.mba-exchange.com/candidates/Login.php"
 SEARCH_URL = "https://www.mba-exchange.com/candidates/jobSearch_p.php"
 
 LLM_SLEEP_SEC = 0.3
+MAX_LLM_ERROR_RATE = 0.2   # fail the run if more AI calls than this fail
+ALLOWED_FUNCTIONS   = {"Strategy", "Ops", "PGM"}
+ALLOWED_SPONSORSHIP = {"Yes", "No", "Not Specified"}
 
 # ── Layer 1: title pre-filter (same rules as job_scraper.py) ──────────────────
 
@@ -211,7 +214,13 @@ def get_existing_sheet_data(ws: gspread.Worksheet) -> tuple[set, set]:
 
 def hyperlink(url: str, title: str) -> str:
     safe_title = title.replace('"', "'").replace("\n", " ")
-    return f'=HYPERLINK("{url}","{safe_title}")'
+    return f'=HYPERLINK("{url.replace(chr(34), "%22")}","{safe_title}")'
+
+
+def cell(text) -> str:
+    """Make outside text safe for USER_ENTERED: a leading = + - @ would run as a formula."""
+    s = str(text)
+    return "'" + s if s[:1] in ("=", "+", "-", "@") else s
 
 
 def parse_date_str(raw: str) -> str:
@@ -707,6 +716,7 @@ async def async_main() -> None:
         # 7. Filter, classify, and build rows
         rows    = []
         skipped = 0
+        llm_calls = llm_errors = 0
 
         for job in new_jobs:
             title   = job["title"]
@@ -728,35 +738,42 @@ async def async_main() -> None:
 
             # Layer 2: LLM classification
             print(f"  Classifying...")
+            llm_calls += 1
             try:
                 result = classify_job(llm_client, title, company, desc)
             except Exception as e:
                 print(f"    [error] LLM failed ({e}) — skipping")
+                llm_errors += 1
                 skipped += 1
                 # Navigate back for next job
                 await page.goto(SEARCH_URL, wait_until="domcontentloaded")
                 await human_sleep(1.5, 2.5)
                 continue
 
-            if not result.get("is_mba_targeted", True):
+            if not isinstance(result, dict) or result.get("is_mba_targeted") is not True:
                 print(f"    → [L2 skip] not MBA-targeted")
                 skipped += 1
                 await human_sleep(0.3, 0.8)
                 continue
 
-            sponsorship = result.get("sponsorship", "Not Specified")
+            sponsorship = result.get("sponsorship")
+            if sponsorship not in ALLOWED_SPONSORSHIP:
+                sponsorship = "Not Specified"
+            deadline = str(result.get("deadline") or "")
+            if not re.fullmatch(r"\d{1,2}/\d{1,2}/\d{4}", deadline):
+                deadline = ""
             # MBA-Exchange shows H1B badge on card — use it as a signal
             if job["h1b"] == "Yes" and sponsorship == "Not Specified":
                 sponsorship = "Yes"
 
             rows.append([
-                company,
+                cell(company),
                 hyperlink(url, title),
-                ", ".join(result.get("function", [])),
-                job["location"],
+                ", ".join(f for f in result.get("function") or [] if f in ALLOWED_FUNCTIONS),
+                cell(job["location"]),
                 "Open",
                 sponsorship,
-                result.get("deadline") or "",
+                deadline,
                 job["posted"],
             ])
             print(f"    ✓ Added: {title} @ {company}  [{job['posted']}]")
@@ -783,6 +800,12 @@ async def async_main() -> None:
         print(f"✓ Marked {len(close_updates)} MBA-Exchange jobs as Closed.")
 
     print(f"  Skipped (new jobs): {skipped}")
+
+    # Safe stop: if the AI step is broken (e.g. API credits ran out), fail the run
+    if llm_calls and llm_errors / llm_calls > MAX_LLM_ERROR_RATE:
+        print(f"\n[error] {llm_errors}/{llm_calls} AI calls failed "
+              f"(> {MAX_LLM_ERROR_RATE:.0%}). Failing run so this isn't missed.")
+        sys.exit(1)
     print("\nDone.\n")
 
 
