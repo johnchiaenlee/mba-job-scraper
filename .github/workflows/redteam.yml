@@ -1,0 +1,23 @@
+name: Red-Team Tests
+
+on:
+  workflow_dispatch:   # manual only — uses the real Claude API, never writes to the sheet
+
+jobs:
+  redteam:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Run red-team suite
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python eval/redteam.py job_scraper.py 3
